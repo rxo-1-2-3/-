@@ -1,0 +1,156 @@
+name: 日経平均 自動取得パイプライン
+
+# ---------------------------------------------------------------------------
+# cron は世界標準時(UTC)。日本時間(JST)は UTC+9 なので 9時間を引いて指定する。
+#   UTC  7:30  =  JST 16:30（東証の取引終了後）
+# 平日のみ起動し、日本の祝日・年末年始は Python 側で判定してスキップする。
+# ---------------------------------------------------------------------------
+on:
+  schedule:
+    - cron: '30 7 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '書き込みを行わず、取得と検証だけを試す'
+        required: false
+        default: true
+        type: boolean
+      force:
+        description: '休場日でも強制的に実行する（動作確認用）'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write   # CSVのコミット用（OUTPUT_MODE=api のみなら read で足りる）
+  issues: write     # 失敗時のお知らせIssue作成用
+
+concurrency:
+  group: nikkei-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Python環境をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 依存ライブラリをインストール
+        run: pip install -r requirements.txt
+
+      - name: ロジックの自己テスト
+        run: python tests/test_pipeline.py
+
+      - name: データ取得・出力
+        id: pipeline
+        env:
+          # ---- 方式の切り替えはここ1か所だけ ----
+          #   csv  : CSVを書き出してGitHub Pages/rawで公開（Zoho側がデータ接続で取り込む）
+          #   api  : Zoho Sheet APIへ直接1行追記
+          #   both : 両方
+          OUTPUT_MODE: ${{ vars.OUTPUT_MODE || 'csv' }}
+          TICKER_SYMBOL: ${{ vars.TICKER_SYMBOL || '^N225' }}
+          HISTORY_PERIOD: ${{ vars.HISTORY_PERIOD || '5y' }}
+          CSV_PATH: ${{ vars.CSV_PATH || 'docs/stock_data_cleaned.csv' }}
+          MAX_DAILY_MOVE_PCT: ${{ vars.MAX_DAILY_MOVE_PCT || '20' }}
+          # ---- OUTPUT_MODE が api / both のときだけ使われる ----
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_RESOURCE_ID: ${{ secrets.ZOHO_RESOURCE_ID }}
+          ZOHO_WORKSHEET_NAME: ${{ vars.ZOHO_WORKSHEET_NAME || 'Sheet1' }}
+          ZOHO_ACCOUNTS_DOMAIN: ${{ vars.ZOHO_ACCOUNTS_DOMAIN || 'https://accounts.zoho.com' }}
+          ZOHO_API_DOMAIN: ${{ vars.ZOHO_API_DOMAIN || 'https://sheet.zoho.com' }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ inputs.force }}"   = "true" ]; then ARGS="$ARGS --force"; fi
+          echo "実行コマンド: python fetch_and_push.py $ARGS"
+          python fetch_and_push.py $ARGS
+
+      # -----------------------------------------------------------------
+      # CSVのコミット。次のいずれかに当てはまる場合は丸ごとスキップする。
+      #   - 休場日でスキップした（steps.pipeline.outputs.skipped == 'true'）
+      #   - dry-run だった
+      #   - CSVがまだ存在しない（初回が休場日だった場合など）
+      # v1ではこのガードが無く、CSV未生成時に `git add` が exit 128 になり
+      # 「失敗」と誤判定されてIssueが誤発報していた。
+      # -----------------------------------------------------------------
+      - name: CSVをコミットして公開
+        if: >-
+          success() &&
+          steps.pipeline.outputs.skipped != 'true' &&
+          inputs.dry_run != true
+        env:
+          CSV_PATH: ${{ vars.CSV_PATH || 'docs/stock_data_cleaned.csv' }}
+        run: |
+          if [ ! -f "$CSV_PATH" ]; then
+            echo "CSVが生成されていないためコミットをスキップします（OUTPUT_MODE=api の場合は正常）。"
+            exit 0
+          fi
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add "$CSV_PATH"
+          if git diff --staged --quiet; then
+            echo "前回から変更がないためコミットしません。"
+            exit 0
+          fi
+          git commit -m "chore: 株価データ自動更新 ($(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M'))"
+          git push
+
+      # -----------------------------------------------------------------
+      # 失敗時のお知らせ。既に開いている同種のIssueがあれば
+      # 新規作成せずコメントを追記する（毎日失敗してもIssueが増殖しない）。
+      # -----------------------------------------------------------------
+      - name: 失敗をIssueで通知
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = 'pipeline-failure';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const stamp = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+
+            const guide = [
+              '**確認の手順**',
+              '',
+              `1. [実行ログを開く](${runUrl}) → 赤い ✗ が付いたステップを展開する`,
+              '2. ログの最終行にあるエラーメッセージを、下の表と照らし合わせる',
+              '',
+              '| ログに出ている内容 | 対処 |',
+              '| --- | --- |',
+              '| `データ取得に失敗しました` | 通信が5回とも失敗。時間を置いて Re-run job を押す |',
+              '| `データ検証に失敗しました（安全弁作動）` | 取得値が異常。Yahoo Finance側の仕様変更を疑う。汚れたデータは書き込まれていないので慌てなくてよい |',
+              '| `認証エラー(401)` | `get_zoho_refresh_token.py` を再実行し Secrets を更新 |',
+              '| `レート制限(429)` | cron の実行間隔を広げる |',
+              '| `設定エラー: 必須の環境変数` | 表示された名前の Secret / Variable を登録する |',
+            ].join('\n');
+
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: label, per_page: 1,
+            });
+
+            if (open.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open[0].number,
+                body: `再び失敗しました（${stamp} JST）。[実行ログ](${runUrl})`,
+              });
+              core.info(`既存のIssue #${open[0].number} にコメントを追記しました。`);
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title: `⚠️ 日経平均パイプラインが停止しました（${stamp} JST）`,
+              body: `安全弁が作動し、処理を停止しました。誤ったデータは書き込まれていません。\n\n${guide}`,
+              labels: [label],
+            });
