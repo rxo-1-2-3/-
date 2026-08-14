@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>完全自動化システム構築ガイド v2（切替式）</title>
+<style>
+  :root{--bg:#faf9f7;--surface:#fff;--text:#1f2328;--muted:#5b6270;--border:#e4e1da;
+        --accent:#2f6f5e;--accent-soft:#e7f1ee;--code:#f2f0ea;--head:#f4f1ea;
+        --shadow:0 1px 3px rgba(31,35,40,.06),0 1px 2px rgba(31,35,40,.04)}
+  @media (prefers-color-scheme:dark){:root{--bg:#16181c;--surface:#1f2229;--text:#e8e6e1;
+        --muted:#a3a8b3;--border:#333844;--accent:#6fcdb2;--accent-soft:#1d332d;
+        --code:#262a33;--head:#262a33;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);line-height:1.85;
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",-apple-system,
+    BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+  .page{max-width:840px;margin:0 auto;padding:56px 24px 96px}
+  .badge{display:inline-block;background:var(--accent-soft);color:var(--accent);font-size:13px;
+    font-weight:600;padding:5px 12px;border-radius:999px;margin-bottom:18px}
+  h1{font-size:30px;line-height:1.4;margin:0 0 8px;font-weight:800;letter-spacing:-.01em}
+  h1+h2{font-size:17px;font-weight:500;color:var(--muted);margin:0 0 36px;border:none;padding:0}
+  h2{font-size:21px;font-weight:700;margin:48px 0 16px;padding-top:10px;
+     border-top:1px solid var(--border)}
+  h1+h2{border-top:none}
+  h3{font-size:16.5px;font-weight:700;margin:28px 0 10px}
+  p{margin:0 0 16px}
+  ul,ol{margin:0 0 16px;padding-left:1.4em}
+  li{margin-bottom:8px}
+  code{background:var(--code);padding:2px 6px;border-radius:5px;font-size:.88em;
+       font-family:"SF Mono",Menlo,Consolas,monospace}
+  pre{background:var(--code);border:1px solid var(--border);border-radius:10px;
+      padding:18px 20px;overflow-x:auto;font-size:12.5px;line-height:1.6}
+  pre code{background:none;padding:0}
+  blockquote{margin:16px 0;padding:14px 18px;background:var(--accent-soft);
+    border-left:3px solid var(--accent);border-radius:6px;font-size:14.5px}
+  blockquote p{margin:0 0 8px}
+  blockquote p:last-child{margin:0}
+  table{width:100%;border-collapse:collapse;margin:16px 0 24px;font-size:14px;
+    background:var(--surface);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:var(--head);font-weight:700;font-size:13px;color:var(--muted)}
+  tr:last-child td{border-bottom:none}
+  hr{display:none}
+  .foot{margin-top:56px;padding-top:24px;border-top:1px solid var(--border);
+        color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="page">
+<span class="badge">v2・実装コード付き / 全項目検証済み</span>
+<h1>完全自動化システム構築ガイド v2（切替式）</h1>
+<h2>GitHub Actions × Zoho Sheet で日経平均を自動収集する</h2>
+<h2>1. このガイドの立ち位置</h2>
+<p>日々の業務や投資分析において、データを手動で集める作業は、もっとも創造性を奪う ルーチンワークの一つです。GitHub Actions と Zoho Sheet を組み合わせれば、 この作業は完全な自動パイプラインに置き換えられます。</p>
+<p>v2 では、前版で問題になっていた「Zoho API 直書き方式」と「CSV公開方式」の混在を解消し、 <strong>環境変数1つで切り替えられる</strong>構成にしました。どちらを選んでもコードは共通です。</p>
+<pre><code>                                    ┌─ OUTPUT_MODE=csv ─▶ CSVをWeb公開 ─▶ Zoho Sheetが取り込む
+[Yahoo Finance] ─▶ [GitHub Actions] ┤
+                                    └─ OUTPUT_MODE=api ─▶ Zoho Sheet APIへ直接書き込み</code></pre>
+<h2>2. まず決めること：どちらの方式で始めるか</h2>
+<p>ここを最初に決めないと、手順の半分が無駄になります。</p>
+<table><thead><tr><th></th><th><strong>csv 方式（推奨）</strong></th><th><strong>api 方式</strong></th></tr></thead><tbody><tr><td>セットアップ時間</td><td>約15分</td><td>約45分</td></tr><tr><td>Zoho APIの登録</td><td>不要</td><td>必要</td></tr><tr><td>リフレッシュトークン発行</td><td>不要</td><td>必要</td></tr><tr><td>GitHub Secrets</td><td>0個</td><td>4個</td></tr><tr><td>リポジトリの公開設定</td><td><strong>Public必須</strong>（無料プラン）</td><td>Private可</td></tr><tr><td>データの見え方</td><td>CSVが誰でも閲覧可能</td><td>非公開</td></tr><tr><td>Zoho側の更新頻度</td><td>無料プランは1日1回</td><td>書き込んだ瞬間</td></tr></tbody></table>
+<p><strong>迷ったら csv 方式です。</strong> 株価は公開情報なので、Publicリポジトリでも実害はありません。 あとから <code>OUTPUT_MODE</code> を変えるだけで api 方式へ移行できます。</p>
+<blockquote><p><strong>GitHub Pages の制約（重要）</strong> 公式ドキュメントに次の記載があります。 「GitHub Pages is available in public repositories with GitHub Free and GitHub Free for organizations, and in public and private repositories with GitHub Pro, GitHub Team, GitHub Enterprise Cloud, and GitHub Enterprise Server.」 つまり<strong>無料プランでは Public リポジトリでしか Pages を使えません</strong>。 Private のまま運用したい場合は api 方式を選んでください。</p></blockquote>
+<h2>3. 各コンポーネントの役割</h2>
+<ul><li><strong>Python（取得・整形・安全弁）</strong>：通信リトライ、重複排除、欠損処理、</li></ul>
+<p>そして異常検知を担当します。おかしなデータを検知したら、後続に流さず処理を止めます。</p>
+<ul><li><strong>GitHub Actions（実行・監視）</strong>：毎営業日の定刻にスクリプトを起動します。</li></ul>
+<p>失敗時は赤い×を灯し、Issue でお知らせします。</p>
+<ul><li><strong>Zoho Sheet（保存・可視化）</strong>：受け取ったデータを関数で整形し、ダッシュボード化します。</li></ul>
+<h2>4. Python 側の設計</h2>
+<h3>4-1. 指数関数的バックオフによるリトライ</h3>
+<p>ネットワークの一時的な瞬断でシステムを止めないため、再試行の間隔を 1秒 → 2秒 → 4秒 → 8秒 と延ばしながら最大5回試します。 <strong>最終試行のあとには待機を入れません。</strong> どうせ諦めるのに待つのは無駄だからです。</p>
+<h3>4-2. 安全弁としての sys.exit(1)</h3>
+<p>取得データの形式が想定と違う場合、無理に処理を継続してはいけません。 異常を検知したら <code>sys.exit(1)</code> を返し、GitHub Actions に「失敗」を伝えてその場で止めます。 汚れたデータが Zoho Sheet に書き込まれるのを防ぐ、文字どおりの安全弁です。</p>
+<h3>4-3. バリデーションは「固定上限」ではなく「前日比」で</h3>
+<p>前版は <code>終値 &gt; 100000</code> なら異常、という固定上限で判定していました。 これは指数が長期的に上昇するといずれ必ず誤検知します。</p>
+<p>v2 では<strong>前日比の変動率</strong>で判定します（既定は ±20%)。 桁ズレや単位変更のようなデータ破損は確実に捕捉でき、かつ将来の水準上昇では誤検知しません。</p>
+<pre><code>前日 42,000 → 当日 4,250（1/10に桁ズレ）  → 変動率 89.9% → 停止
+前日 42,000 → 当日 45,000（通常の上昇）    → 変動率  7.1% → 通過</code></pre>
+<h3>4-4. 営業日判定</h3>
+<p>土日、日本の祝日（<code>jpholiday</code>）、そして<strong>年末年始（12/31〜1/3）</strong>を休場と判定し、 早期終了します。GitHub Actions の無料実行枠を無駄遣いしないための工夫です。</p>
+<blockquote><p>前版はこの年末年始の判定が <code>[1, 16, 24]</code> になっており、 <strong>1月16日・24日という実際の取引日を毎年スキップしていました</strong>。 v2 では <code>[1, 2, 3]</code> に修正し、自己テストで固定しています。</p></blockquote>
+<h2>5. GitHub Actions 側の設計</h2>
+<h3>5-1. UTC と JST の時差（cron 設定）</h3>
+<p>cron は世界標準時（UTC）で動きます。日本時間から9時間引いて指定します。</p>
+<ul><li><code>cron: &#x27;30 7 * * 1-5&#x27;</code> → UTC 7:30 = <strong>JST 16:30</strong>（東証の取引終了後、平日のみ）</li><li>JST 9:00 に動かしたいなら → <code>cron: &#x27;0 0 * * 1-5&#x27;</code></li></ul>
+<h3>5-2. dry_run を「本当に」配線する</h3>
+<p>前版は <code>workflow_dispatch</code> に <code>dry_run</code> を宣言していましたが、 実行ステップがその値を一切参照していませんでした。 つまり <strong>true にしても本番実行され、CSVがコミットされていました</strong>。</p>
+<p>v2 では入力値を実際にコマンドライン引数へ渡します。</p>
+<pre><code>run: |
+  ARGS=&quot;&quot;
+  if [ &quot;${{ inputs.dry_run }}&quot; = &quot;true&quot; ]; then ARGS=&quot;$ARGS --dry-run&quot;; fi
+  if [ &quot;${{ inputs.force }}&quot;   = &quot;true&quot; ]; then ARGS=&quot;$ARGS --force&quot;; fi
+  python fetch_and_push.py $ARGS</code></pre>
+<p>スケジュール起動時は <code>inputs</code> が空になるため、引数なし（＝本番実行）になります。</p>
+<h3>5-3. 休場日に「誤報」を出さない</h3>
+<p>前版には次の落とし穴がありました。休場日は Python が CSV を作らずに終了するのに、 コミットステップは動いてしまい、<code>git add</code> が存在しないファイルを掴んで <strong>exit 128 で失敗 → 「🚨 システム警告」Issue が誤発報</strong>していました。 セットアップ直後の初回が祝日だと、いきなり真っ赤になります。</p>
+<p>v2 では三重にガードしています。</p>
+<ol><li>Python が休場日に <code>skipped=true</code> を <code>GITHUB_OUTPUT</code> へ出力し、後続ステップが自分でスキップ</li><li>コミットステップの冒頭で CSV の存在を確認し、無ければ正常終了</li><li>ヘッダーのみの CSV を最初から同梱し、初回でも <code>git add</code> が失敗しない</li></ol>
+<h3>5-4. Issue を増殖させない</h3>
+<p>失敗のたびに新規 Issue を立てると、連日失敗した場合に埋め尽くされます。 v2 は未解決の同種 Issue を検索し、あればコメントを追記するだけにします。</p>
+<h2>6. Zoho Sheet 側の連携</h2>
+<h3>6-1. IMPORTDATA は使えません</h3>
+<p><code>IMPORTDATA</code> は <strong>Google Sheets の関数で、Zoho Sheet には存在しません。</strong> Zoho Sheet にあるのは <code>IMPORTRANGE</code> ですが、これは Zoho Sheet 同士の連携専用で、 外部URLのCSVは読めません。</p>
+<p>外部CSVの取り込みには、必ず<strong>「データ」→「データ接続」</strong>機能を使ってください。 URL を指定し、更新頻度を選ぶだけです。無料プランは1日1回、有料プランなら1時間ごとに更新できます （どちらも24時間で最大50回まで）。</p>
+<h3>6-2. ヘッダーは手入力しない</h3>
+<p>csv 方式では、データ接続が CSV の1行目（<code>Date,Close,Volume</code>）を そのままヘッダーとして展開します。事前に手入力しておくと、 上書きされるか範囲の衝突エラーになります。</p>
+<h3>6-3. 見た目を整えるクレンジング関数</h3>
+<p>このパイプラインは<strong>生データをそのまま渡す</strong>設計です。 表示用の整形はシート側の役割として分離してあります。 こうしておくと、将来データソースを変えても集計ロジックが壊れません。</p>
+<table><thead><tr><th>関数</th><th>用途</th><th>実例</th></tr></thead><tbody><tr><td><code>SUBSTITUTE</code></td><td>不要な文字の置換</td><td><code>SUBSTITUTE(&quot;2017.01.04&quot;,&quot;.&quot;,&quot;/&quot;)</code> → <code>2017/01/04</code></td></tr><tr><td><code>VALUE</code></td><td>数値型への変換</td><td><code>VALUE(&quot;19,594.00&quot;)</code> → <code>19594</code></td></tr><tr><td><code>DATEVALUE</code></td><td>日付型への統一</td><td><code>DATEVALUE(A1)</code> → シリアル値（グラフ描画に必須）</td></tr><tr><td><code>IFERROR</code></td><td>取得失敗時の回避</td><td><code>IFERROR(式,&quot;確認中&quot;)</code> → 表示崩れを防止</td></tr></tbody></table>
+<p><strong>単位の正規化</strong>：出来高は株数（例 2,375,713）で入ります。 グラフに載せると桁が多すぎるので、表示用の列で <code>=A1/1000</code> として 「千株」に正規化すると読みやすくなります。</p>
+<h2>7. セットアップ手順の要約</h2>
+<h3>csv 方式（約15分）</h3>
+<ol><li>コード一式を <strong>Public</strong> リポジトリにアップロードし、Actions を有効化</li><li>Settings → Pages → Branch <code>main</code> / フォルダ <strong><code>/docs</code></strong> で公開</li><li>Actions から手動実行（<code>dry_run=true</code> → 確認 → <code>false</code> で本番）</li><li>公開ページに出る CSV の URL を、Zoho Sheet の「データ接続」に貼る</li></ol>
+<h3>api 方式（約45分）</h3>
+<p>上記1に加えて、Zoho API コンソールでアプリ登録 → <code>get_zoho_refresh_token.py</code> で 鍵を発行 → Secrets 4つと Variables を登録 → <code>OUTPUT_MODE=api</code> に設定します。</p>
+<blockquote><p>データセンターの選択に注意。日本のアカウントは <strong><code>https://accounts.zoho.jp</code></strong> です （<code>.co.jp</code> ではありません）。</p></blockquote>
+<p>クリック単位の詳細手順は、コード一式に同梱の <code>README.md</code> にあります。</p>
+<h2>8. トラブル対応マトリクス</h2>
+<table><thead><tr><th>ケース</th><th>検知方法</th><th>対処</th></tr></thead><tbody><tr><td>一時的な通信エラー</td><td>Pythonの例外処理</td><td>最大5回、1→2→4→8秒間隔で自動リトライ。それでも失敗したら Re-run</td></tr><tr><td>データ構造の変化</td><td>列の存在チェック・前日比チェック</td><td><code>sys.exit(1)</code>で停止。汚れたデータは書き込まれない</td></tr><tr><td>市場の休場</td><td>土日・祝日・年末年始判定</td><td>自動スキップ（正常終了）。何もしなくてよい</td></tr><tr><td>認証切れ (401)</td><td>Zoho APIの応答コード</td><td><code>get_zoho_refresh_token.py</code> を再実行して Secrets 更新</td></tr><tr><td>レート制限 (429)</td><td>Zoho APIの応答コード</td><td>cron の実行間隔を広げる</td></tr><tr><td>Pages が 404</td><td>ブラウザで確認</td><td>リポジトリが Public か、Pages のフォルダが <code>/docs</code> か確認</td></tr></tbody></table>
+<h2>9. 自分で確かめられること</h2>
+<p>セットアップ前でも、ネットワーク接続なしでロジックの正しさを検証できます。</p>
+<pre><code>python tests/test_pipeline.py</code></pre>
+<p>休場判定・年末年始・重複排除・欠損処理・安全弁・モード切替の26項目を検証します。 GitHub Actions 上でもデータ取得の前に毎回実行されるので、 コードを書き換えて壊した場合はその場で気づけます。</p>
+<h2>付録：前版から修正した点</h2>
+<p>指摘を受けて実機検証したうえで直した内容です。</p>
+<h3>設計の矛盾</h3>
+<table><thead><tr><th>症状</th><th>修正内容</th></tr></thead><tbody><tr><td>Python が CSV を書くだけなのに、手順は Zoho API 登録を要求していた</td><td><code>OUTPUT_MODE</code> で方式を明示的に選ぶ構成に統一。csv 方式では Zoho 関連の環境変数を一切要求しない</td></tr><tr><td>「Zoho Sheet に1行書き込まれる」という成功条件が csv 方式では絶対に起きない</td><td>方式ごとに正しい確認手順を分離。csv 方式は動作確認ページで確認</td></tr><tr><td>GitHub Pages の有効化手順と CSV の URL が本文になかった</td><td>手順とURLの形を明記。<code>/docs</code> 公開に統一し、確認用ページを同梱</td></tr><tr><td>Private リポジトリでは Pages が使えないことの注意がなかった</td><td>公式記載を引用して明記し、api 方式という代替も提示</td></tr></tbody></table>
+<h3>動くが誤動作していた箇所</h3>
+<table><thead><tr><th>症状</th><th>検証結果</th><th>修正内容</th></tr></thead><tbody><tr><td>年末年始判定 <code>[1, 16, 24]</code></td><td>2029年・2030年は1/16と1/24の<strong>2営業日</strong>を毎年スキップ、1/2・1/3は逆に無駄実行</td><td><code>[1, 2, 3]</code> + <code>12/31</code> に修正し自己テストで固定</td></tr><tr><td><code>raise ValueError(...) [7, 8]</code> に引用番号が混入</td><td>構文は通るが <code>TypeError: &#x27;ValueError&#x27; object is not subscriptable</code> になる</td><td>引用番号を除去し、専用の例外クラスに整理</td></tr><tr><td><code>dry_run</code> が未配線</td><td><code>inputs.dry_run</code> の参照が0件。true でも本番実行</td><td>引数へ実際に渡すよう修正。4パターンの起動で検証</td></tr><tr><td>休場日に <code>git add</code> が失敗</td><td>CSV未生成時に <strong>exit 128</strong> → 誤って失敗Issueが発報</td><td>skipped 出力・存在確認・seed CSV の三重ガード</td></tr><tr><td><code>IMPORTDATA</code> の利用を案内</td><td>Zoho Sheet に同関数は存在しない</td><td>「データ接続」機能へ差し替え</td></tr><tr><td><code>accounts.zoho.co.jp</code></td><td>公式のマルチDC一覧では <code>accounts.zoho.jp</code></td><td>修正し、ウィザードの選択肢にも反映</td></tr><tr><td>終値の上限 <code>100000</code> 固定</td><td>将来必ず誤検知する</td><td>前日比の変動率（既定±20%、変更可）へ変更</td></tr><tr><td>失敗ごとに新規Issue</td><td>連日失敗でIssueが増殖</td><td>未解決Issueがあればコメント追記に変更</td></tr><tr><td>リトライ最終試行後も32秒待機</td><td>合計62秒を無駄に消費</td><td>最終試行後は待たないよう修正</td></tr><tr><td>手入力ヘッダーに <code>UpdatedAt</code></td><td>csv 方式の CSV に同列は存在しない</td><td>方式ごとに正しい列構成を明記</td></tr><tr><td>未使用の <code>import os</code> / <code>requests</code></td><td>—</td><td>整理し、必要な箇所でのみ読み込む</td></tr></tbody></table>
+<h2>10. おわりに</h2>
+<p>自動化システムは「完成」がゴールではありません。市場環境や技術スタックの変化に合わせて、 少しずつ調整して育てていくものです。</p>
+<p>そのとき効いてくるのが、<code>sys.exit(1)</code> による安全停止、失敗時の自動通知、 そして<strong>自己テスト</strong>です。テストがあると、手を入れて壊したときにすぐ気づけます。 安心して触れる状態を保つことが、長く動かし続けるための一番の近道です。</p>
+<div class="foot">クリック単位の詳細手順は、同梱の README.md をご覧ください。</div>
+</div>
+</body>
+</html>

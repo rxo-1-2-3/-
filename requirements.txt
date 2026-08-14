@@ -1,0 +1,4 @@
+yfinance>=0.2.40
+jpholiday>=0.1.10
+pandas>=2.0.0
+requests>=2.31.0

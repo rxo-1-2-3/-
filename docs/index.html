@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>日経平均 自動取得パイプライン — 動作確認ページ</title>
+<style>
+  :root{--bg:#faf9f7;--surface:#fff;--text:#1f2328;--muted:#5b6270;--border:#e4e1da;--accent:#2f6f5e;--accent-soft:#e7f1ee;--code:#f2f0ea}
+  @media (prefers-color-scheme:dark){:root{--bg:#16181c;--surface:#1f2229;--text:#e8e6e1;--muted:#a3a8b3;--border:#333844;--accent:#6fcdb2;--accent-soft:#1d332d;--code:#262a33}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);line-height:1.7;
+       font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:48px 20px 80px}
+  h1{font-size:24px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 28px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:18px}
+  .label{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.04em;margin-bottom:6px}
+  code,.url{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;background:var(--code);
+            padding:8px 10px;border-radius:6px;display:block;overflow-wrap:anywhere}
+  button{font:inherit;font-size:13px;padding:7px 14px;border-radius:7px;border:1px solid var(--border);
+         background:var(--accent-soft);color:var(--accent);cursor:pointer;margin-top:10px}
+  button:hover{filter:brightness(.97)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:6px}
+  th,td{text-align:right;padding:7px 10px;border-bottom:1px solid var(--border)}
+  th:first-child,td:first-child{text-align:left}
+  th{font-size:12px;color:var(--muted);font-weight:700}
+  .stat{display:flex;gap:28px;flex-wrap:wrap;margin-top:4px}
+  .stat div span{display:block}
+  .stat .k{font-size:12px;color:var(--muted)}
+  .stat .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+  .note{font-size:13px;color:var(--muted)}
+  .err{color:#b4453a}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>日経平均 自動取得パイプライン</h1>
+  <p class="sub">このページが表示できていれば、GitHub Pages の公開設定は成功しています。</p>
+
+  <div class="card">
+    <div class="label">Zoho Sheet に貼り付けるCSVのURL</div>
+    <div class="url" id="csvUrl">読み込み中…</div>
+    <button id="copyBtn">URLをコピー</button>
+    <p class="note" style="margin-bottom:0">
+      Zoho Sheet の「データ」→「データ接続」でこのURLを指定し、更新頻度を「毎日」に設定してください。
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="label">最新の取得状況</div>
+    <div id="status" class="note">CSVを読み込んでいます…</div>
+    <div class="stat" id="stats"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">直近10営業日</div>
+    <div id="tableArea" class="note">—</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var csvName = 'stock_data_cleaned.csv';
+  var url = new URL(csvName, window.location.href).href;
+  document.getElementById('csvUrl').textContent = url;
+
+  document.getElementById('copyBtn').addEventListener('click', function () {
+    var btn = this;
+    navigator.clipboard.writeText(url).then(function () {
+      btn.textContent = 'コピーしました';
+      setTimeout(function () { btn.textContent = 'URLをコピー'; }, 1800);
+    });
+  });
+
+  function parseCsv(text) {
+    var lines = text.trim().split(/\r?\n/);
+    var head = lines[0].split(',');
+    return lines.slice(1).filter(Boolean).map(function (l) {
+      var c = l.split(','), o = {};
+      head.forEach(function (h, i) { o[h.trim()] = (c[i] || '').trim(); });
+      return o;
+    });
+  }
+  var fmt = function (n) { return Number(n).toLocaleString('ja-JP'); };
+
+  fetch(csvName, { cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(function (text) {
+      var rows = parseCsv(text);
+      var st = document.getElementById('status');
+      if (!rows.length) {
+        st.textContent = 'CSVはありますが、まだデータ行がありません。ワークフローを1回実行してください。';
+        return;
+      }
+      var last = rows[rows.length - 1];
+      var prev = rows.length > 1 ? rows[rows.length - 2] : null;
+      var diff = prev ? (Number(last.Close) - Number(prev.Close)) : null;
+
+      st.textContent = '正常に読み込めました（' + rows.length + '行）。';
+      document.getElementById('stats').innerHTML =
+        '<div><span class="k">最新日</span><span class="v">' + last.Date + '</span></div>' +
+        '<div><span class="k">終値</span><span class="v">' + fmt(last.Close) + '</span></div>' +
+        '<div><span class="k">前日比</span><span class="v">' +
+          (diff === null ? '—' : (diff >= 0 ? '+' : '') + fmt(diff.toFixed(2))) + '</span></div>';
+
+      var tail = rows.slice(-10).reverse();
+      var html = '<table><thead><tr><th>日付</th><th>終値</th><th>出来高</th></tr></thead><tbody>';
+      tail.forEach(function (r) {
+        html += '<tr><td>' + r.Date + '</td><td>' + fmt(r.Close) + '</td><td>' + fmt(r.Volume) + '</td></tr>';
+      });
+      document.getElementById('tableArea').innerHTML = html + '</tbody></table>';
+    })
+    .catch(function (e) {
+      document.getElementById('status').innerHTML =
+        '<span class="err">CSVを読み込めませんでした（' + e.message + '）。</span><br>' +
+        'ワークフローがまだ1回も成功していない可能性があります。' +
+        'Actions タブから手動実行（dry_run を false）してください。';
+    });
+})();
+</script>
+</body>
+</html>

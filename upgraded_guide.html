@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>【誰でも使える版】完全自動化システム構築・エラーリカバリーガイド</title>
+<style>
+  :root {
+    --bg: #faf9f7;
+    --surface: #ffffff;
+    --text: #1f2328;
+    --text-muted: #5b6270;
+    --border: #e4e1da;
+    --accent: #2f6f5e;
+    --accent-soft: #e7f1ee;
+    --code-bg: #f2f0ea;
+    --table-head: #f4f1ea;
+    --shadow: 0 1px 3px rgba(31,35,40,0.06), 0 1px 2px rgba(31,35,40,0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c;
+      --surface: #1f2229;
+      --text: #e8e6e1;
+      --text-muted: #a3a8b3;
+      --border: #333844;
+      --accent: #6fcdb2;
+      --accent-soft: #1d332d;
+      --code-bg: #262a33;
+      --table-head: #262a33;
+      --shadow: 0 1px 3px rgba(0,0,0,0.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+  }
+  .badge {
+    display: inline-block;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    margin-bottom: 18px;
+    letter-spacing: 0.02em;
+  }
+  h1 {
+    font-size: 30px;
+    line-height: 1.4;
+    margin: 0 0 8px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  h1 + h2 {
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin: 0 0 36px;
+    border: none;
+    padding: 0;
+  }
+  h2 {
+    font-size: 21px;
+    font-weight: 700;
+    margin: 48px 0 16px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    scroll-margin-top: 24px;
+  }
+  h2:first-of-type { border-top: none; }
+  h3 {
+    font-size: 16.5px;
+    font-weight: 700;
+    margin: 28px 0 10px;
+    color: var(--text);
+  }
+  p { margin: 0 0 16px; color: var(--text); }
+  hr { display: none; }
+  ul, ol { margin: 0 0 16px; padding-left: 1.4em; }
+  li { margin-bottom: 8px; }
+  strong { font-weight: 700; color: var(--text); }
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 0.88em;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; }
+  blockquote {
+    margin: 16px 0;
+    padding: 14px 18px;
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 14.5px;
+  }
+  blockquote p { margin: 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 14px;
+    background: var(--surface);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--table-head);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  tr:last-child td { border-bottom: none; }
+  .footer-note {
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <span class="badge">アップグレード版・実装コード付き</span>
+  <h1>【誰でも使える版】完全自動化システム構築・エラーリカバリーガイド</h1>
+  <h2>GitHub Actions × Zoho Sheet で日経平均を自動収集する</h2>
+
+  <h2>0. このアップグレードで変わったこと</h2>
+<p>元のガイドは「考え方」を説明する読み物でしたが、今回のアップグレードでは <strong>実際にコピーして動かせる一式</strong>に仕上げました。プログラミング経験がない方でも、手順どおりに進めるだけでシステムが完成します。</p>
+<table>
+<thead><tr><th>これまで</th><th>アップグレード後</th></tr></thead>
+<tbody>
+<tr><td>コンセプトの説明のみ</td><td>動作確認済みの実装コード一式（Python 2本 / GitHub Actionsワークフロー）</td></tr>
+<tr><td>上級者向けの手順</td><td>クリック単位のセットアップガイド（README.md）</td></tr>
+<tr><td>リフレッシュトークンの発行方法は未説明</td><td>対話式ウィザードスクリプトで誰でも発行可能</td></tr>
+<tr><td>失敗に「気づく」手段がログ確認のみ</td><td>失敗時にGitHub Issueを自動作成して通知</td></tr>
+<tr><td>エラー処理の解説のみ</td><td>実際に例外・リトライ・sys.exit()を実装し、動作検証済み</td></tr>
+</tbody>
+</table>
+<p>本ガイドと合わせて、次の3点を納品しています。</p>
+<ol>
+<li><strong>実行可能なコード一式</strong>（<code>nikkei-auto-pipeline.zip</code>）</li>
+<li>このアップグレード版ガイド（Markdown / HTML）</li>
+<li>Wordドキュメント版ガイド</li>
+</ol>
+<p>まずはこの記事で全体像とロジックを理解し、細かいクリック手順はコード一式に同梱した <code>README.md</code> を見ながら進めてください。</p>
+
+<h2>1. はじめに：自動データパイプラインがもたらす「効率化の魔法」</h2>
+<p>日々の業務や投資分析において、データを「手動」で集める作業は、もっとも創造性を奪うルーチンワークの一つです。GitHub ActionsとZoho Sheetを組み合わせることで、この単調な作業を「全自動のパイプライン」へと昇華させることができます。</p>
+<p>本ガイドでは、「日経平均株価」や「売買高」といった金融データを、一滴の無駄もなく、かつ極めて堅牢にスプレッドシートへ流し込む手法を解説します。</p>
+<h3>システムの全体像</h3>
+<p>この自動化は、以下の3ステップで実現します。</p>
+<ol>
+<li><strong>収集（Collection）</strong>：Python（yfinance）を使い、市場から最新の「生データ」を抽出</li>
+<li><strong>監視・転送（Monitoring &amp; Transfer）</strong>：GitHub Actionsが司令塔となり、実行スケジュールを管理。異常があれば即座に検知</li>
+<li><strong>磨き上げ（Processing）</strong>：Zoho Sheetの関数群により、届いたデータを分析可能な「黄金のインサイト」へと加工</li>
+</ol>
+<p>手動運用のコストをゼロに近づけ、24時間365日ミスなく動き続ける仕組み。今回のアップグレードでは、この設計図をそのまま<strong>動くコード</strong>に落とし込みました。</p>
+
+<h2>2. 堅牢なシステムアーキテクチャの設計</h2>
+<pre><code>┌────────────────┐      ┌──────────────────────┐      ┌────────────────┐
+│  Yahoo Finance  │ ───▶ │   GitHub Actions       │ ───▶ │  Zoho Sheet     │
+│ （日経平均データ源）│      │  (fetch_and_push.py)  │      │ （保存・可視化） │
+└────────────────┘      │  ・毎営業日9:00 JST起動 │      └────────────────┘
+                          │  ・リトライ＋検証       │
+                          │  ・失敗時 sys.exit(1)  │
+                          │  ・失敗時 Issue自動作成│
+                          └──────────────────────┘</code></pre>
+<h3>各コンポーネントの役割</h3>
+<ul>
+<li><strong>Python（データ取得）</strong>：通信リトライやデータの整合性チェックを行い、クリーンなデータのみを次へ渡します。</li>
+<li><strong>GitHub Actions（実行・監視）</strong>：正確なタイミングでスクリプトを起動。エラー発生時には「赤いアラート」を灯し、後続処理を遮断。さらに今回はGitHub Issueへの自動通知も追加しました。</li>
+<li><strong>Zoho Sheet（保存・可視化）</strong>：届いたデータの表記ゆれを修正し、ダッシュボードとして出力します。</li>
+</ul>
+
+<h2>3. Pythonによる高度なデータ収集とエラー制御</h2>
+<p>金融データは生き物です。通信の不安定さや市場の休業日など、不確定要素への対策こそがエンジニアの腕の見せ所です。同梱の <code>fetch_and_push.py</code> には、以下がすべて実装済みです。</p>
+<h3>指数関数的バックオフによるリトライ</h3>
+<p>ネットワークの一時的な瞬断でシステムを止めないために、リトライ戦略は必須です。単なる繰り返しではなく、再試行の間隔を「1秒、2秒、4秒、8秒、16秒」と延ばすことで、サーバーへの負荷を抑えつつ復旧を待ちます（<code>retry_with_backoff()</code> 関数として実装、実機での動作も確認済みです）。</p>
+<h3>異常検知と「安全弁」としての sys.exit(1)</h3>
+<p>取得したデータの形式が突然変わっていたら（例：数値であるべき株価が異常値になっている等）、無理に処理を継続してはいけません。</p>
+<ul>
+<li><strong>ロジック</strong>：スクリプト内で異常を検知した際、<code>sys.exit(1)</code> を実行</li>
+<li><strong>意義</strong>：GitHub Actions側に「失敗（Failure）」が伝わり、ワークフローがその場で停止。汚れたデータがZoho Sheetへ上書きされるのを防ぐ、文字通りの「安全弁」</li>
+</ul>
+<h3>営業日判定のインテリジェンス</h3>
+<p>日経平均株価を扱う場合、東京証券取引所のカレンダーを意識する必要があります。<code>jpholiday</code> ライブラリを使用し、「土日祝日なら処理を早期終了（<code>sys.exit(0)</code>）」させるロジックを実装しました。これにより、GitHub Actionsの無料実行枠（Minutes）を無駄遣いしないスマートな運用が可能です（祝日判定は「山の日」等でテスト済み）。</p>
+
+<h2>4. GitHub Actionsによる自動実行と監視</h2>
+<p>構築したスクリプトを「いつ、どうやって実行するか」を制御するのがGitHub Actionsです。</p>
+<h3>UTCとJSTの時差計算（Cron設定）</h3>
+<p>GitHub Actionsのスケジュール設定（Cron）は世界標準時（UTC）で行われます。日本時間（JST）との「+9時間」の差を正しく計算しましょう。</p>
+<ul>
+<li>例：日本時間の午前9時に実行したい場合 → <code>cron: '0 0 * * 1-5'</code>（UTC 0:00 = JST 9:00、平日のみ）</li>
+<li>例：日付が変わる直前、午前0時（JST）に実行したい場合 → <code>cron: '0 15 * * *'</code>（UTC 15:00は前日）</li>
+</ul>
+<h3>失敗に「気づく」仕組み（アップグレード版の新機能）</h3>
+<p>Pythonが <code>sys.exit(1)</code> を返すと、GitHub Actionsのワークフロー履歴には赤い「×」マークが付きます。元のガイドではここまででしたが、<strong>非エンジニアの方はログを見に行く習慣がないため、気づけないまま数日放置されてしまう</strong>という弱点がありました。</p>
+<p>そこで今回、失敗時に<strong>GitHub Issue（お知らせ）を自動作成する</strong>ステップを追加しました（<code>actions/github-script</code> を利用）。Issueにはログへのリンクと、想定される原因・対処法が自動で書き込まれます。GitHubの通知設定をONにしておけば、メールで気づくこともできます。</p>
+<p>さらに、手動実行時に <code>dry_run</code> オプションを選べる <code>workflow_dispatch</code> トリガーも追加しています。これにより、設定変更後の動作確認をZoho Sheetを汚さずに行えます。</p>
+
+<h2>5. Zoho Sheetの関数を駆使した「データクレンジングの職人芸」</h2>
+<p>届いたばかりの「生データ」を、分析可能な「資産」へと磨き上げる工程です。</p>
+<h3>インポートとクレンジングの極意</h3>
+<p>外部データを取り込む際、最大の問題は「表記の揺れ」です。例えば <code>2017.01.04</code> というドット区切りの日付や、カンマ付きの株価（<code>19,594.00</code>）を、計算可能な型に変換する必要があります。</p>
+<h3>鉄板の数式モデル</h3>
+<table>
+<thead><tr><th>関数</th><th>主な用途</th><th>実例</th></tr></thead>
+<tbody>
+<tr><td><code>SUBSTITUTE</code></td><td>不要な文字の置換</td><td><code>SUBSTITUTE("2017.01.04", ".", "/")</code> → <code>2017/01/04</code></td></tr>
+<tr><td><code>VALUE</code></td><td>数値型への変換</td><td><code>VALUE("19,594.00")</code> → <code>19594</code>（計算可能に）</td></tr>
+<tr><td><code>DATEVALUE</code></td><td>日付型への統一</td><td><code>DATEVALUE(A1)</code> → シリアル値（グラフ描画に必須）</td></tr>
+<tr><td><code>IFERROR</code></td><td>取得失敗時の回避</td><td><code>IFERROR(公式, "確認中")</code> → エラーによる表示崩れを防止</td></tr>
+</tbody>
+</table>
+<p><strong>職人のテクニック：単位の正規化</strong><br>売買高の単位が「株」と「千株」で混在するケースがあります。ダッシュボード上で桁数を合わせるために <code>=A1/1000</code> といった正規化処理を関数で行うのが、見た目の美しさと正確さを両立させるコツです。</p>
+<blockquote><p>実装上のメモ：<code>fetch_and_push.py</code> は生データ（数値・日付文字列）をそのまま <code>Date</code> / <code>Close</code> / <code>Volume</code> / <code>UpdatedAt</code> の4列に書き込みます。表示用の整形・単位変換は、上記の関数を使ってZoho Sheet側の別列（表示用シート）で行う設計にしています。これにより「生データ列」と「見た目を整えた列」を分離でき、将来データソースを変更しても集計ロジックが壊れにくくなります。</p></blockquote>
+
+<h2>6. 「もしもの時」の自動安全フローとエラーリカバリー</h2>
+<p>運用中のトラブルは「起こるもの」として設計します。以下のマトリクスは、実際に <code>fetch_and_push.py</code> と <code>nikkei-pipeline.yml</code> に実装済みの対応策です。</p>
+<table>
+<thead><tr><th>ケース</th><th>検知方法</th><th>リカバリー策（実装済み）</th></tr></thead>
+<tbody>
+<tr><td>一時的な通信エラー</td><td>Pythonの例外処理（Try-Except）</td><td>指数関数的リトライ（最大5回）による自動復旧</td></tr>
+<tr><td>データ構造の劇的変化</td><td>Pythonによるバリデーション失敗</td><td><code>sys.exit(1)</code> で停止 → GitHub Issue自動作成で通知 → 手動修正</td></tr>
+<tr><td>市場の休場・欠損</td><td>日付・weekday・<code>jpholiday</code>による祝日判定</td><td>早期終了（<code>sys.exit(0)</code>）でActions実行枠を節約</td></tr>
+<tr><td>API制限・認証切れ（HTTP 401/429）</td><td>Zoho APIのレスポンスコード判定</td><td>401：エラーメッセージでトークン再発行を案内／429：実行間隔の調整を案内</td></tr>
+</tbody>
+</table>
+
+<h2>7. セットアップの流れ（詳細はコード一式のREADME.mdへ）</h2>
+<ol>
+<li>コード一式をGitHubリポジトリにアップロード</li>
+<li>Zoho Sheetにシートを用意し、Zoho API コンソールでアプリを登録</li>
+<li><code>get_zoho_refresh_token.py</code> をパソコンで1回実行し、「鍵」を発行</li>
+<li>GitHubのSecrets/Variablesに鍵を登録</li>
+<li><code>workflow_dispatch</code> で <code>dry_run=true</code> の動作確認 → 本番実行</li>
+</ol>
+<p>クリックする場所のスクリーンショット相当の説明や、つまずきやすいポイント（Redirect URIの一致、Secrets名の綴りミス等）は <code>README.md</code> に詳しくまとめてあります。</p>
+
+<h2>8. おわりに：持続可能な自動化のために</h2>
+<p>自動化システムは「完成」がゴールではありません。市場環境や技術スタックの変化に合わせて、少しずつ調整し「育てていくもの」です。</p>
+<p>本ガイドで紹介した <code>sys.exit(1)</code> による安全停止、<code>IFERROR</code> による美観維持、そして今回追加した「失敗時のGitHub Issue自動通知」は、プロの現場でも欠かせない「安全弁」です。これらを組み込むことで、あなたはシステムが暴走する不安から解放され、より高度なデータ分析へとステップアップできるはずです。</p>
+<p>一行のコード、一つの関数が、あなたの時間を生み出す強力なデジタル資産に変わります。そして今回、その一行一行はすでに書き上がっています。あとは手順どおりに動かすだけです。</p>
+
+  <div class="footer-note">
+    実装コード一式・詳細セットアップ手順は同梱の README.md をご覧ください。
+  </div>
+</div>
+</body>
+</html>
